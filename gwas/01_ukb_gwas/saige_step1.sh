@@ -5,15 +5,26 @@
 # bias-corrected brain-age gap produced by the RegionBAE model
 # (column {region}_corrected_delta_age_int in $UKB_PHENO_FILE).
 #
-# --invNormalize=TRUE is applied on an already-INT column: rank-preserving, so
-# it is a no-op here. It is kept because it is what the published run used.
+# Inverse normalization is retained to match the executed SAIGE command.
+#
+# Visit was included in the original covariate argument list but was constant in
+# the final discovery and PRS-derivation samples and was excluded from the fitted
+# models. It is retained here to match the original command. The fitted
+# covariates were sex, age and the first ten genetic principal components.
+#
+# SAIGE version: step 1 of the published run used SAIGE 1.1.8 and step 2 used
+# SAIGE 1.1.9. SAIGE_RUNNER_STEP1 / SAIGE_IMAGE_STEP1 / SAIGE_ENV_STEP1 select the
+# step-1 build; each falls back to the corresponding SAIGE_* value when unset.
 #
 # Usage: bash saige_step1.sh [region ...]      (default: all UK Biobank regions)
 set -uo pipefail
 . "$(dirname "$0")/../config/common.sh"
 gwas_require GWAS_UKB_DIR UKB_GRM_PLINK UKB_PHENO_FILE
 
-COVARS="${UKB_COVARS:-Sex,Age,PC1,PC2,PC3,PC4,PC5,PC6,PC7,PC8,PC9,PC10}"
+COVARS="${UKB_COVARS:-Sex,Age,Visit,PC1,PC2,PC3,PC4,PC5,PC6,PC7,PC8,PC9,PC10}"
+SAIGE_RUNNER="${SAIGE_RUNNER_STEP1:-${SAIGE_RUNNER:-docker}}"
+SAIGE_IMAGE="${SAIGE_IMAGE_STEP1:-${SAIGE_IMAGE:-}}"
+SAIGE_ENV="${SAIGE_ENV_STEP1:-${SAIGE_ENV:-}}"
 
 if [ "$#" -ge 1 ]; then regions=("$@"); else mapfile -t regions < <(gwas_regions ukb); fi
 
@@ -33,6 +44,7 @@ for region in "${regions[@]}"; do
         --sampleIDColinphenoFile=IID \
         --traitType=quantitative \
         --invNormalize=TRUE \
+        --useSparseGRMtoFitNULL=FALSE \
         --outputPrefix="${out_dir}/step1" \
         --nThreads="${SAIGE_NTHREADS:-4}" \
         --LOCO=TRUE \

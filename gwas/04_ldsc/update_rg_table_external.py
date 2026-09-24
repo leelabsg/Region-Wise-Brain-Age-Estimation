@@ -8,8 +8,13 @@ Genetic FDR families:
         Telomere Length PC1 x 10 BAG  +  Protein Age x 10 BAG  +  Protein Age x Telomere Length PC1.
     Genetic_fdr is RECALCULATED and replaced for all 21 rows (Genetic_p stays = log P).
 Row changes:
-  - 10 'Protein Age' x BAG rows: Genetic_r/Z/p replaced from protage204_ldsc_verified.tsv (P_log),
-    Phenotypic replaced from the ST13-compatible unadjusted-INT family (BH over 10, unchanged family);
+  - 10 'Protein Age' x BAG rows: Genetic_r/Z/p are KEPT as build_rg_table.py estimated them from this
+    run's own LDSC --rg logs. Setting PROTAGE_SUBSTITUTE_GENETIC=1 instead replaces all ten from the
+    pre-computed PROTEIN_AGE_RG_TSV; that is opt-in because it discards the run's own estimates, and
+    the published table was built with it OFF. Phenotypic_r/p/q are taken from
+    PROTEIN_AGE_PHENO_CORR_TSV, the ProtAge-204 phenotypic correlation output (BH over 10, unchanged
+    family); build_rg_table.py's inline phenotypic columns come from PROTEIN_AGE_PHENO_FILE, which is
+    a different input and is not the 204-panel result.
   - 1 'Protein Age' x 'Telomere Length PC1' row appended (Genetic from ldsc_verified; Phenotypic NA);
   - 10 'Telomere Length PC1' x BAG rows: Genetic_r/Z/p and Phenotypic (NA) kept; only Genetic_fdr
     recomputed within the 21-family.
@@ -30,8 +35,14 @@ def env(name):
 
 
 ST13 = env("RG_TABLE_OUT")                    # written by build_rg_table.py; updated in place
-LDSC_VERIFIED = env("PROTEIN_AGE_RG_TSV")     # Trait2/rg/Z/P_log for the replacement genetic rows
+# Supplies the Protein Age x Telomere Length PC1 row, which this run does not estimate and the table
+# has no other source for. It ALSO carries ten Protein Age x BAG rows; those are used only when
+# PROTAGE_SUBSTITUTE_GENETIC=1.
+LDSC_VERIFIED = env("PROTEIN_AGE_RG_TSV")
 PHENO = env("PROTEIN_AGE_PHENO_CORR_TSV")     # phenotypic r/p/q for Protein Age x BAG
+# Opt-in. OFF (the default, and how the published table was built) keeps the Protein Age x BAG
+# genetic estimates that build_rg_table.py read from this run's own LDSC logs.
+SUBSTITUTE_GENETIC = os.environ.get("PROTAGE_SUBSTITUTE_GENETIC", "") == "1"
 
 REGIONS = ["global","caudate","cerebellum","frontal_lobe","insula",
            "occipital_lobe","parietal_lobe","putamen","temporal_lobe","thalamus"]
@@ -65,8 +76,14 @@ gen = {}
 with open(LDSC_VERIFIED) as f:
     for row in csv.DictReader(f, delimiter="\t"):
         gen[row["Trait2"]] = dict(rg=row["rg"], Z=row["Z"], p=row["P_log"])
-for k in REGIONS + ["telomere"]:
-    assert k in gen, f"missing genetic row: {k}"
+assert "telomere" in gen, "missing genetic row: telomere (Protein Age x Telomere Length PC1)"
+if SUBSTITUTE_GENETIC:
+    for k in REGIONS:
+        assert k in gen, f"missing genetic row: {k}"
+print("Protein Age x BAG genetic rows: "
+      + (f"REPLACED from {LDSC_VERIFIED} (PROTAGE_SUBSTITUTE_GENETIC=1)" if SUBSTITUTE_GENETIC
+         else "kept from this run's LDSC logs as build_rg_table.py wrote them"))
+print(f"Protein Age x BAG phenotypic rows: from {PHENO}")
 
 # --- Phenotypic (Protein x BAG): unadjusted INT-INT Pearson (r, p, q over 10) ---
 phe = {}
@@ -77,12 +94,10 @@ with open(PHENO) as f:
 for r in REGIONS:
     assert r in phe, f"missing phenotypic row: {r}"
 
-# new Protein x BAG rows (Genetic_fdr filled after 21-family BH), keyed by display
-new_prot = {}
-for r in REGIONS:
-    g, p = gen[r], phe[r]
-    new_prot[DISPLAY[r]] = [PROTDISP, DISPLAY[r], g["rg"], g["Z"], g["p"], None,
-                            p["r"], p["p"], p["q"]]
+# Phenotypic values for the Protein x BAG rows, keyed by display name. The genetic
+# columns are filled per row below: kept from the table, or replaced when opted in.
+new_phe = {DISPLAY[r]: phe[r] for r in REGIONS}
+new_gen = {DISPLAY[r]: gen[r] for r in REGIONS} if SUBSTITUTE_GENETIC else {}
 tel = gen["telomere"]
 tel_row = [PROTDISP, TELDISP, tel["rg"], tel["Z"], tel["p"], None, "NA", "NA", "NA"]
 
@@ -121,8 +136,16 @@ for ln in lines:
         out.append(cols); header_seen = True; continue
     if cols[0] in ("Protein Age", PROTDISP):
         disp = cols[1]
-        assert disp in new_prot, f"no replacement for Protein Age '{disp}'"
-        row = list(new_prot[disp]); out.append(row); prot_rows.append(row); replaced.add(disp)
+        assert disp in new_phe, f"no phenotypic values for Protein Age '{disp}'"
+        p = new_phe[disp]
+        if SUBSTITUTE_GENETIC:
+            g = new_gen[disp]
+            row = [PROTDISP, disp, g["rg"], g["Z"], g["p"], None, p["r"], p["p"], p["q"]]
+        else:
+            # keep Genetic_r / Genetic_Z / Genetic_p from the table; Genetic_fdr is
+            # recomputed below within the 21-test external-aging family.
+            row = [PROTDISP, disp, cols[2], cols[3], cols[4], None, p["r"], p["p"], p["q"]]
+        out.append(row); prot_rows.append(row); replaced.add(disp)
     elif cols[0] == TELDISP:
         out.append(cols); tel_bag_rows.append(cols)
     else:
@@ -130,8 +153,8 @@ for ln in lines:
 
 assert genfdr_c, "Genetic_fdr comment not updated"
 assert src_c, "Protein Age source comment not updated"
-assert replaced == set(new_prot.keys()), f"replaced {sorted(replaced)} != {sorted(new_prot.keys())}"
-assert len(replaced) == 10, f"replaced {len(replaced)} Protein x BAG rows, expected 10"
+assert replaced == set(new_phe.keys()), f"updated {sorted(replaced)} != {sorted(new_phe.keys())}"
+assert len(replaced) == 10, f"updated {len(replaced)} Protein x BAG rows, expected 10"
 assert len(tel_bag_rows) == 10, f"found {len(tel_bag_rows)} Telomere x BAG rows, expected 10"
 assert out[-1] is prot_rows[-1] if prot_rows else False, "Protein Age block not last; refusing to append"
 out.append(tel_row); prot_rows.append(tel_row)

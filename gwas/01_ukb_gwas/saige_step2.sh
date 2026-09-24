@@ -7,6 +7,10 @@
 # UK Biobank BGEN files label autosomes 01..09 / 10..22; --chrom is zero-padded
 # to match, while output files keep the unpadded number.
 #
+# The option list is the one the published run passed, written out in full rather
+# than left to SAIGE's defaults, so a future SAIGE release changing a default
+# cannot silently change the analysis.
+#
 # Usage: bash saige_step2.sh [chr ...]                  (default 1-22)
 #        REGIONS="caudate thalamus" bash saige_step2.sh 22
 set -uo pipefail
@@ -30,13 +34,23 @@ launch() {
         --chrom="${chrom}" \
         --minMAF=0 \
         --minMAC=10 \
+        --minInfo=0 \
+        --maxMissing=0.15 \
+        --impute_method=best_guess \
         --LOCO=TRUE \
         --GMMATmodelFile="$GWAS_UKB_DIR/$region/step1.rda" \
         --varianceRatioFile="$GWAS_UKB_DIR/$region/step1.varianceRatio.txt" \
+        --SPAcutoff=2 \
+        --dosage_zerod_cutoff=0.2 \
+        --dosage_zerod_MAC_cutoff=10 \
+        --markers_per_chunk=10000 \
+        --max_MAC_for_ER=4 \
+        --is_fastTest=FALSE \
         --is_Firth_beta=TRUE \
         --is_imputed_data=TRUE \
         --pCutoffforFirth=0.05 \
-        --is_output_moreDetails=TRUE)"
+        --is_output_moreDetails=TRUE \
+        --is_overwrite_output=TRUE)"
     gwas_run "$node" "$cmd" > "$log/step2_chr${chr}.log" 2>&1
 }
 

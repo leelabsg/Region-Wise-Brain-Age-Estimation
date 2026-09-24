@@ -25,6 +25,7 @@ REPO = _env("MAGMA_ROOT")
 OUT  = os.path.join(REPO, "outputs/manuscript_tables")
 RUNS = os.path.join(OUT, "runs")
 B_PATH  = os.path.join(OUT, "tableB_independent_significant_set.tsv")
+A_PATH  = os.path.join(OUT, "tableA_step1_marginal_all_regions.tsv")   # carries BETA_STD
 S3_PATH = os.path.join(OUT, "supp_step3_cross_dataset_all.tsv")
 APPROVED_MAP_PATH = os.path.join(OUT, "harmonization_map_v2_APPROVED.tsv")
 
@@ -32,8 +33,9 @@ EXPECTED_REGIONS = ["global","caudate","frontal_lobe","insula","occipital_lobe",
                     "parietal_lobe","putamen","temporal_lobe","thalamus","cerebellum"]
 RETAINED_STATES = {"entered_step3","step2_retained","step1_single"}
 CANON = "NA_PENDING_APPROVED_MAPPING"
-EXPECTED_ST11A_ROWS = 209
-EXPECTED_ST11C_ROWS = 25390
+# Derived from the inputs in main(): ST11a is B filtered to the retained states and ST11c
+# is a copy of S3, so the meaningful guard is that neither loses rows in the build, not
+# that either matches a count from a previous run.
 FORBIDDEN_ST11C_NEW_COLS = {"adjusted","significant","passed","dropped","final"}
 REQ_B  = ["region","Dataset","Cell_type","survived_at"]
 REQ_S3 = ["region","MODEL","Dataset","Cell_type"]
@@ -78,6 +80,15 @@ def main():
     if bad_state:
         print("UNEXPECTED survived_at states:", bad_state); sys.exit(1)
     st11a = B[B["survived_at"].isin(RETAINED_STATES)].copy()
+    # BETA_STD is a Step-1 statistic that tableB does not carry; bring it across from tableA on the
+    # signal key so it is not lost in transit. Join only, no recomputation.
+    A = read_str(A_PATH)[["region", "Dataset", "Cell_type", "BETA_STD"]]
+    n_before = len(st11a)
+    st11a = st11a.merge(A, on=["region", "Dataset", "Cell_type"], how="left", validate="one_to_one")
+    if len(st11a) != n_before:
+        sys.exit(f"BETA_STD join changed the row count: {n_before} -> {len(st11a)}")
+    if st11a["BETA_STD"].isna().any():
+        sys.exit(f"BETA_STD missing for {int(st11a['BETA_STD'].isna().sum())} retained signals")
     st11a.insert(4, "canonical_group", CANON)
     st11a["retained_status"] = st11a["survived_at"]
     st11a["_ro"] = st11a["region"].map({r:i for i,r in enumerate(EXPECTED_REGIONS)})
@@ -90,10 +101,12 @@ def main():
     st11c = st11c.sort_values(["_ro","MODEL","Dataset","Cell_type"], kind="stable").drop(columns="_ro")
 
     # -------------------- blocking checks --------------------
-    if len(st11a) != EXPECTED_ST11A_ROWS:
-        sys.exit(f"ST11a row-count mismatch: observed={len(st11a)}, expected={EXPECTED_ST11A_ROWS}")
-    if len(st11c) != EXPECTED_ST11C_ROWS:
-        sys.exit(f"ST11c row-count mismatch: observed={len(st11c)}, expected={EXPECTED_ST11C_ROWS}")
+    n_retained_in_B = int(B["survived_at"].isin(RETAINED_STATES).sum())
+    if len(st11a) != n_retained_in_B:
+        sys.exit(f"ST11a lost rows in the build: {len(st11a)} vs {n_retained_in_B} retained rows in B")
+    if len(st11c) != len(S3):
+        sys.exit(f"ST11c lost rows in the build: {len(st11c)} vs {len(S3)} rows in S3")
+    print(f"[derived] ST11a rows={len(st11a)} (retained in B)  ST11c rows={len(st11c)} (S3 rows)")
     if st11a.duplicated(["region","Dataset","Cell_type"]).any():
         sys.exit("ST11a contains duplicate signal keys")
     if set(st11a["canonical_group"]) != {CANON}:

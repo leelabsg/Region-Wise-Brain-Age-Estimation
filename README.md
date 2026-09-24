@@ -168,11 +168,26 @@ raw_bag = ŷ − y
 bias_corrected_bag = (ŷ − b) / a − y
 ```
 
-The coefficients `(a, b)` are estimated once on that reference sample and applied
-unchanged to all other rows (other visits, patient groups, external cohorts).
-Fitting them on rows the model was trained on, or refitting them within a patient
-group, leaks and is not what the paper does. `compute_bag.py` writes `(a, b)`, the
-reference sample size and its source to a `.calibration.json` sidecar.
+Estimating the coefficients and applying them are separate steps. Within each
+cohort-specific calibration scheme, `(a, b)` are estimated once on the designated
+reference sample and then applied unchanged to the corresponding target predictions.
+For UK Biobank, the reference comprises pooled out-of-fold predictions from the
+25,642 training participants, and the resulting coefficients are applied unchanged
+to all UK Biobank prediction sets. ADNI uses a separate reference comprising
+out-of-fold predictions from cognitively normal participants; UK Biobank and ADNI
+calibration coefficients are not mixed. Refitting the correction within a target
+sample or patient subgroup would therefore differ from the procedure used in the
+paper.
+
+`compute_bag.py` requires the reference to be specified explicitly using
+`--calibration_csv`, `--calibration_filter COLUMN=VALUE`, or
+`--calibration_scope self` when the input itself is the reference table. If none
+is supplied, the script exits rather than fitting the correction on the target
+input by default. The fitted `(a, b)`, reference-sample size and reference source
+are written to a `.calibration.json` sidecar.
+
+MAE and the Pearson correlation between predicted and chronological age are
+reported on the **uncorrected** predicted age.
 
 **INT** (optional), applied to the bias-corrected BAG:
 

@@ -88,7 +88,7 @@ rather than replacing a package that may already have been deposited.
   03_score.sh ukb            plink2 --score, chr1-22
           │
           ├──► 04_analyze_ST17.py          held-out validation   (ST17)
-          └──► 05_analyze_ST18_phewas.py   non-imaging PheWAS    (ST18)
+          └──► 05_analyze_ST18_phewas.py   PheWAS, once per sample (ST18)
 
   04a_build_adni_weights.py  → 03_score.sh adni → 06_analyze_adni.py  (ST21-23)
 ```
@@ -97,7 +97,7 @@ rather than replacing a package that may already have been deposited.
 set -a; . gwas/config/paths.env; set +a
 for r in $(awk -F'\t' '!/^#/ && $3 ~ /ukb/ {print $1}' gwas/config/regions.tsv); do
     bash gwas/06_prs/02_gctb_commands.sh "$r"
-    bash gwas/06_prs/03_score.sh ukb "$r"
+    bash gwas/06_prs/03_score.sh ukb "$r"      # PRS_UKB_KEEP unset scores everyone
 done
 python gwas/06_prs/07_export_weights.py
 python gwas/06_prs/04_analyze_ST17.py
@@ -134,7 +134,46 @@ do not change.
 | `03_score.sh` | `plink2 --score` for UK Biobank (per chromosome) or ADNI |
 | `04_analyze_ST17.py` | held-out UKB validation, OLS BAG ~ PRS (ST17) |
 | `04a_build_adni_weights.py` | rewrite the weights against ADNI variant IDs |
-| `05_analyze_ST18_phewas.py` | UKB non-imaging PheWAS (ST18); a phecode's exclusion range is dropped from that phecode's test rather than counted as a control, and the within-region BH is NaN-safe |
+| `05_analyze_ST18_phewas.py` | UK Biobank PheWAS (ST18), one run per analysis sample; sex-specific phecodes are restricted to that sex in cases and controls alike, a phecode's exclusion range is dropped from that phecode's test rather than counted as a control, and BH runs within one BAG PRS within one sample |
+| `sex_specific_phecodes.tsv` | the sex designations ST18 applied: 134 aggregated test units, 109 Female and 25 Male |
 | `06_analyze_adni.py` | ADNI correlation and case-control models (ST21-23) |
 | `07_export_weights.py` | deposit package: per-region weights + sha256 manifest |
 | `_regions.py` | region codes and display names, from `config/regions.tsv` |
+
+## ST18: three analysis samples
+
+`05_analyze_ST18_phewas.py` is run once per sample, each with its own
+`ST18_SAMPLE` and its own output directory; the samples are never pooled and BH
+is computed within one BAG PRS within one sample.
+
+| `ST18_SAMPLE` | analysis sample | n | role |
+|---|---|---|---|
+| `ukb_nonimaging_wb` | UK Biobank non-imaging, White British | 389,045 | primary |
+| `ukb_nonimaging` | UK Biobank non-imaging, no ancestry restriction | 442,295 | sensitivity |
+| `ukb_imaging_heldout_10267` | UK Biobank imaging held-out | 10,267 | |
+
+The ancestry restriction is supplied as `PRS_PHEWAS_KEEP`, a list of participant
+ids. Omitting it is a decision, not a default: a run with no keep file must set
+`ST18_ALLOW_UNRESTRICTED=1` to state that `PRS_PHEWAS_TABLE` is already the
+intended sample, and a keep file that is missing, empty or matches nothing is an
+error rather than a fallback to the whole table. `ST18_EXPECTED_N` asserts the
+resulting sample size.
+
+Three model forms are fitted:
+
+| model | phecodes | design |
+|---|---|---|
+| A | not sex-specific | `logit(case) ~ PRS_region + Age + Sex + PC1..PC10` |
+| B | sex-specific | `logit(case) ~ PRS_region + Age + PC1..PC10`, fitted in that sex only, cases and controls alike; Sex is dropped because it is constant after the restriction |
+| C | 751.1 | model A, unrestricted: its constituent subcodes carry conflicting sex designations |
+
+Test units are the integer part of a phecode plus at most one decimal digit, so
+174.11 folds into 174.1 while 174.1 and 174 stay separate units; within a unit the
+child columns are combined with a skipna maximum. A test is fitted when it has at
+least 30 cases and both outcome classes after the restriction and complete-case
+selection; every attempt, fitted or excluded, is written to `ST18_fit_status.tsv`
+with its reason.
+
+`PRS_UKB_KEEP` in `03_score.sh` is a different thing: it selects who gets
+*scored*, not who is analysed. The published run left it unset and scored every
+participant in the pgen, because ST18 needs scores outside the imaging cohort.

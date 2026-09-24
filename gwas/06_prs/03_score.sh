@@ -8,6 +8,17 @@
 # snpRes columns used: 2=Name(rsID) 5=A1(effect allele) 8=A1Effect(posterior mean).
 # no-mean-imputation: a missing genotype contributes nothing rather than the
 # cohort mean, so scores are comparable to the published ones.
+#
+# Scoring scope is not an analysis sample. The published run scored every
+# participant in the UK Biobank pgen, because the downstream PheWAS needs scores
+# for participants outside the imaging cohort; each analysis then selects its own
+# sample (ST17 the 10,267 held-out participants, ST18 its keep list). Set
+# PRS_UKB_KEEP to score a subset instead; leaving it unset scores everyone. A
+# PRS_UKB_KEEP that is set but missing, unreadable or empty is an error -- it never
+# falls back to scoring the whole cohort.
+#
+# The weights, the scored allele (A1) and the unstandardised summed score are
+# whatever 02_gctb_commands.sh produced; nothing here rescales them.
 set -uo pipefail
 . "$(dirname "$0")/../config/common.sh"
 gwas_require PRS_WORK_DIR PLINK2
@@ -19,11 +30,22 @@ SNPRES="$PRS_WORK_DIR/weights/$REGION/SBayesR.snpRes"
 
 case "$COHORT" in
 ukb)
-    gwas_require UKB_PGEN_TMPL PRS_UKB_KEEP
+    gwas_require UKB_PGEN_TMPL
+    keep_args=()
+    if [ -n "${PRS_UKB_KEEP:-}" ]; then
+        if [ ! -r "$PRS_UKB_KEEP" ] || [ ! -s "$PRS_UKB_KEEP" ]; then
+            echo "ABORT: PRS_UKB_KEEP is set but missing, unreadable or empty: $PRS_UKB_KEEP" >&2
+            exit 1
+        fi
+        keep_args=(--keep "$PRS_UKB_KEEP")
+        echo "scoring the subset in $PRS_UKB_KEEP"
+    else
+        echo "scoring every participant in the pgen (PRS_UKB_KEEP unset)"
+    fi
     OUT="$PRS_WORK_DIR/scores_ukb/$REGION"; mkdir -p "$OUT"
     for chr in $(seq 1 22); do
         "$PLINK2" --pfile "${UKB_PGEN_TMPL//\{chr\}/$chr}" \
-            --keep "$PRS_UKB_KEEP" \
+            "${keep_args[@]}" \
             --threads "${PRS_THREADS:-12}" --memory "${PRS_MEMORY_MB:-24000}" \
             --score "$SNPRES" 2 5 8 ignore-dup-ids no-mean-imputation cols=+scoresums \
             --out "$OUT/chr${chr}" > "$OUT/chr${chr}.out" 2>&1 || echo "FAIL $REGION chr$chr"

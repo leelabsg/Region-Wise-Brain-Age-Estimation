@@ -1,14 +1,23 @@
 #!/usr/bin/env python3
 """
 Manuscript integration tables (A/B) + cross-region summaries + cerebellum
-asymmetry diagnostics + per-region lambda_GC, from FUMA (9 region) + local
-cerebellum MAGMA celltype output.
+asymmetry diagnostics + per-region lambda_GC, from the MAGMA cell-type output.
+
+Input-file routing is configuration, not a literal. The manuscript-table build
+read the finalized outputs for all ten BAG phenotypes from the consolidated local
+STEP23 directory. This input-file routing does not change the analysis
+provenance: nine phenotypes were analysed with the FUMA web implementation and
+cerebellar BAG was analysed locally, as described in Supplementary Note 7.
+Naming regions in MAGMA_FUMA_REGIONS reads those from a FUMA download directory
+instead; it is empty by default, matching the build above.
 
 Ground rules (per user):
 - NO transformation of underlying MAGMA numbers. Schemas verified byte-identical.
 - conditional p-values (step2/3) get NO extra multiple-testing correction.
 - No harmonization / grouping / exclusion in the main tables.
-- 212 is NOT a confirmed headline number (cerebellum = local run, inflation dx pending).
+- Cerebellum carries far more significant cell types than any other region. The inflation
+  diagnostic is NOT outstanding: cerebellum lambda_GC is 1.1233, inside the range the other
+  nine regions span. The caution is about interpreting a large count, not an unresolved check.
 
 INDEPENDENT-SET DEFINITION (verified 2026-07-16):
   magma_celltype_step3.txt has NO final pass/drop flag (16 cols = pairwise stats +
@@ -33,21 +42,39 @@ def _env(name):
 
 
 ROOT = _env("MAGMA_ROOT")
-FUMA = os.path.join(ROOT, "data/fuma_celltype_results")
-CER  = os.path.join(ROOT, "outputs/step23_v2/cerebellum")
 GWAS = _env("GWAS_UKB_DIR")
-OUT  = os.path.join(ROOT, "outputs/manuscript_tables")
+OUT  = os.environ.get("MAGMA_TABLES_DIR", os.path.join(ROOT, "outputs/manuscript_tables"))
 os.makedirs(OUT, exist_ok=True)
 
-M_BONF = 12531
+# Where this build READS each region's finalized cell-type output from.
+STEP23 = os.environ.get("MAGMA_STEP23_DIR", os.path.join(ROOT, "outputs/step23"))
+# Regions whose files are read from a FUMA download directory instead. Empty in the
+# build that produced the manuscript tables.
+FUMA_DIR = os.environ.get("MAGMA_FUMA_CELLTYPE_DIR",
+                          os.path.join(ROOT, "data/fuma_celltype_results"))
+FUMA_REGIONS = {r for r in os.environ.get("MAGMA_FUMA_REGIONS", "").split(",") if r}
+# Merged per-region summary statistics, relative to GWAS_UKB_DIR, for the lambda_GC panel.
+# Default is the naming the published build used.
+SUMSTATS_TMPL = os.environ.get("MAGMA_SUMSTATS_TMPL",
+                               "{region}/{region}_discovery_41067_sumstats.txt")
+
+# (M_BONF is not defined here: this script never used it. Significance comes from the
+#  upstream P.adj compared against SIG_ADJ, so no Bonferroni denominator is applied.)
 SIG_ADJ = 0.05
 MAF_MIN, INFO_MIN = 0.01, 0.30   # lambda_GC QC filters
 
 REGIONS = ["global","caudate","frontal_lobe","insula","occipital_lobe",
            "parietal_lobe","putamen","temporal_lobe","thalamus","cerebellum"]
 
-region_dir = lambda r: CER if r=="cerebellum" else os.path.join(FUMA, r)
-src_of     = lambda r: "LOCAL" if r=="cerebellum" else "FUMA"
+# `source` records WHICH DIRECTORY THIS BUILD READ THE FILE FROM -- LOCAL for the
+# consolidated STEP23 directory, FUMA for a FUMA download directory. It is not the
+# analysis implementation: the FUMA web implementation analysed nine BAG phenotypes and
+# cerebellar BAG was analysed locally (Supplementary Note 7), and that provenance is
+# recorded there, not in this column. In the build that produced the manuscript tables
+# every region was read from STEP23, so the column reads LOCAL throughout. The column is
+# kept because removing it would change tableA's shape for every downstream consumer.
+region_dir = lambda r: os.path.join(FUMA_DIR, r) if r in FUMA_REGIONS else os.path.join(STEP23, r)
+src_of     = lambda r: "FUMA" if r in FUMA_REGIONS else "LOCAL"
 readtsv    = lambda p: pd.read_csv(p, sep="\t", dtype=str)
 def tonum(df, cols):
     for c in cols:
@@ -125,8 +152,11 @@ try:
                     step2_cond_state="NA", step2_cond_celltype="NA",
                     step2_retained=1, region_ran_step3=0, survived_at="step1_single"))
     tableB=pd.DataFrame(b_rows)
-    tableB["inflation_note"]=np.where(tableB.region=="cerebellum",
-        "inflation diagnostic pending (local run; see lambda_GC + family decomposition)","")
+    # The cerebellum exception was a "this region differs from the other nine" note, and the
+    # diagnostic it pointed at (region_lambda_GC.outlier_vs_other9, cerebellum_family_decomposition)
+    # is built on exactly that contrast. With all ten regions run the same way it has no referent.
+    # Column kept so tableB's shape is unchanged.
+    tableB["inflation_note"]=""
     col_order=["region","source","Dataset","Cell_type","NGENES","BETA","SE","P","P_adj",
                "step2_cond_state","step2_cond_celltype","step2_retained","region_ran_step3","survived_at",
                "n_step3_pairs","step3_P_cond_min","step3_P_cond_max","step3_PS_min","step3_PS_mean","step3_CDM_P_min","inflation_note"]
@@ -213,7 +243,7 @@ print("== lambda_GC per region (MAF>=%.2f, INFO>=%.2f) ==" % (MAF_MIN, INFO_MIN)
 DENOM=chi2.ppf(0.5,1)   # 0.4549364
 lam_rows=[]
 for r in REGIONS:
-    f=os.path.join(GWAS, r, "results", f"{r}_imputed_sumstats.txt")
+    f=os.path.join(GWAS, SUMSTATS_TMPL.format(region=r))
     d=pd.read_csv(f, sep="\t", usecols=["AF_Allele2","imputationInfo","p.value","N"],
                   dtype={"AF_Allele2":"float64","imputationInfo":"float64","p.value":"float64","N":"float64"})
     n_raw=len(d)

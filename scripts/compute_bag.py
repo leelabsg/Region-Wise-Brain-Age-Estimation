@@ -12,12 +12,24 @@ predictions of healthy controls — then
 
     bias_corrected_bag = (predicted_age - b) / a - chronological_age
 
-The reference sample is, in order of precedence:
+Estimating the coefficients and applying them are separate steps. The reference
+sample the coefficients are ESTIMATED on must be named explicitly, one of:
   1. ``--calibration_csv`` (e.g. the CN out-of-fold prediction table), or
   2. the rows of the input selected by ``--calibration_filter COLUMN=VALUE``
      (a trailing ``*`` makes it a prefix match, e.g. ``prediction_mode=oof*``), or
-  3. all rows of the input (only appropriate when the input already *is* the
-     control out-of-fold table).
+  3. ``--calibration_scope self``, which fits on all rows of the input and is
+     correct only when the input already *is* the reference table.
+Once estimated, the coefficients are APPLIED unchanged to every row of every
+predictions file given. Passing none of the three is an error: a missing
+reference must never fall through to fitting the correction on the target sample
+itself, which would shrink its own brain-age gap towards zero.
+
+The UK Biobank and ADNI analyses use different references and must not be mixed:
+the UK Biobank coefficients were estimated on the pooled out-of-fold predictions
+of the 25,642 training participants and applied unchanged to training and to both
+test sets, while ADNI has its own cognitively-normal out-of-fold reference.
+(This guard is a release addition; the published runs named their reference
+explicitly, so it changes no published number.)
 
 INT (optional via ``--int``) is applied to the bias-corrected BAG within the
 output file: ``norm.ppf((rankdata(x, 'average') - 0.5) / n)``.
@@ -53,6 +65,9 @@ def parse_args():
                         '(control out-of-fold predictions)')
     p.add_argument('--calibration_filter', default='',
                    help='COLUMN=VALUE selecting the reference rows inside the input')
+    p.add_argument('--calibration_scope', default='', choices=['', 'self'],
+                   help="'self' fits the correction on all rows of the input; only correct "
+                        'when the input already is the reference table')
     p.add_argument('--no_bias_correction', action='store_true',
                    help='report raw BAG only')
     p.add_argument('--int', dest='apply_int', action='store_true',
@@ -60,8 +75,23 @@ def parse_args():
     return p.parse_args()
 
 
-def reference_rows(df, calibration_csv, calibration_filter):
-    """Return (reference_dataframe, provenance_string)."""
+def reference_rows(df, calibration_csv, calibration_filter, calibration_scope):
+    """Return (reference_dataframe, provenance_string).
+
+    Exactly one reference must be named. There is deliberately no default: falling
+    back to the target sample would silently replace the paper's bias correction
+    with a per-sample refit.
+    """
+    named = [bool(calibration_csv), bool(calibration_filter), calibration_scope == 'self']
+    if sum(named) == 0:
+        raise SystemExit(
+            'ERROR: no bias-correction reference given. Pass --calibration_csv, or '
+            '--calibration_filter COLUMN=VALUE, or --calibration_scope self if this '
+            'predictions file already is the reference sample; or --no_bias_correction '
+            'to report raw BAG only. This never defaults to fitting on the input.')
+    if sum(named) > 1:
+        raise SystemExit('ERROR: --calibration_csv, --calibration_filter and '
+                         '--calibration_scope self are mutually exclusive')
     if calibration_csv:
         ref = pd.read_csv(calibration_csv)
         for col in (AGE_COL, PRED_COL):
@@ -81,7 +111,7 @@ def reference_rows(df, calibration_csv, calibration_filter):
         if ref.empty:
             raise ValueError(f'--calibration_filter {calibration_filter} selected no rows')
         return ref, f'filter={calibration_filter}'
-    return df, 'all rows of the predictions table'
+    return df, 'all rows of the predictions table (--calibration_scope self)'
 
 
 def main():
@@ -101,7 +131,8 @@ def main():
         if args.no_bias_correction:
             print(f'[{region}] raw BAG only (n={len(df)}, MAE={df["raw_bag"].abs().mean():.4f})')
         else:
-            ref, source = reference_rows(df, args.calibration_csv, args.calibration_filter)
+            ref, source = reference_rows(df, args.calibration_csv, args.calibration_filter,
+                                         args.calibration_scope)
             if 'region' in ref.columns and ref['region'].nunique() == 1:
                 ref_region = str(ref['region'].iloc[0])
                 if ref_region != region:

@@ -12,9 +12,6 @@ Paths, host names and container references were lifted out into
 LDSC and MAGMA flag, the bias-correction formula, the point at which the
 inverse-normal transform is applied, the covariate lists, and the cell-type
 retention rule are byte-for-byte what produced the published numbers.
-`validation/verify_release.py` re-runs the released scripts against the original
-inputs and diffs the result against the published tables — see
-[Verification](#verification).
 
 ## Setup
 
@@ -246,7 +243,8 @@ config/
   03_score.sh                 plink2 --score, UK Biobank or ADNI
   04_analyze_ST17.py          held-out UKB validation, OLS BAG ~ PRS
   04a_build_adni_weights.py   rewrite the weights against ADNI variant IDs
-  05_analyze_ST18_phewas.py   UKB non-imaging PheWAS
+  05_analyze_ST18_phewas.py   UKB PheWAS, one run per analysis sample
+  sex_specific_phecodes.tsv   sex designations applied to sex-specific phecodes
   06_analyze_adni.py          ADNI correlation and case-control models
   07_export_weights.py        deposit package: weights + sha256 manifest
   _regions.py                 region codes and display names
@@ -270,12 +268,8 @@ config/
   reference/                    app.config template
 
 validation/
-  verify_release.py             re-runs the released code, diffs against the
-                                published tables
-  compare_tables.py             spreadsheet-aware cell comparison
   allele_convention_check.txt   chr22 measurement behind the allele-labelling
                                 note, with the commands to re-run it
-  expected/                     the invariants the retention check asserts
 ```
 
 ### The step-3 parallel driver
@@ -291,40 +285,12 @@ matrix at 15 significant digits, and MAGMA's p-value for a collinear-sensitive
 pair depends on that. The driver writes `%.15g` to match, which makes its
 intermediate files byte-identical to R's.
 
-## Verification
+## Notes on the published tables
 
-```bash
-set -a; . gwas/config/paths.env; set +a
-python gwas/validation/verify_release.py \
-    --h2-reference       published/Table_S14.tsv \
-    --rg-reference       published/Table_S15.tsv \
-    --celltype-reference published/Table_S16.tsv \
-    --retained-signals   retained_signals.tsv \
-    --significant-set    significant_set.tsv
-```
-
-Each reference is the published supplementary table exported as TSV. A check
-whose reference is not given is skipped; the script exits non-zero if any check
-that ran failed. Against the manuscript workbook all four pass, every cell:
-
-| check | what it rebuilds | compared |
-|---|---|---|
-| `h2` | the heritability table, from the standalone LDSC `--h2` logs | 12 × 12 |
-| `rg` | the correlation table, by running both correlation builders | 66 × 9 |
-| `celltype / retention rule` | the retained set from the significant set | 209 of 264, per-region split |
-| `celltype / table` | the published cell-type table from the retained signals | 209 × 20 |
-
-Comparison is cell by cell but not character by character: the published tables
-are a spreadsheet export, which stores numbers and renders them to a fixed
-width, so `validation/compare_tables.py` treats a rebuilt value as equal when
-rounding it to the digits the reference shows reproduces the reference. It also
-understands `<1e-300`-style bounds. Anything else is a mismatch.
-
-One check sits outside `verify_release.py`:
 `validation/allele_convention_check.txt` records the chromosome-22 comparison
 behind the allele-labelling note above, and the commands to re-run it.
 
-Three details are worth knowing before reading a failure:
+Three details about how the tables were produced:
 
 - The h² printed inside an `--rg` log is a *different* estimate — LDSC re-fits
   it on the two-trait SNP intersection — and is not what the heritability table
