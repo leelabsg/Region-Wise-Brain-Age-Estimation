@@ -19,13 +19,13 @@
 #                  438170 for 434,898), all of which fall outside the munged set.
 #                  The released sumstats were munged with --N 438351.0.
 #
-#   protage204     N = 43710    01_preprocess.py
+#   protage204     N = 38806    01_preprocess.py
 #                  Input: LDSC_PROTEIN_AGE_RAW_SUMSTATS, the merged SAIGE step-2
 #                  output for the ProtAge-204 proteomic-age gap. N is the SAIGE
-#                  step-1 analysed sample size and equals the N column (field 14)
-#                  of that file, which the original run verified to be constant
-#                  before munging. The released sumstats were munged with
-#                  --N 43710.0.
+#                  analysed sample size and equals the N column (field 14) of
+#                  that file, which is checked to be constant before munging.
+#                  The published run (07_protage/11_ldsc_downstream.py, which
+#                  makes the same munge call) used --N 38806.
 #
 # ProtAge-204 needs no external-specific preprocess script. Its input is ordinary
 # SAIGE output (CHR POS MarkerID Allele1 Allele2 AC_Allele2 AF_Allele2 ... BETA

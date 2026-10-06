@@ -51,9 +51,11 @@ echo "merged.ma rows=$(wc -l < "$IMP/merged.ma") md5=$(md5sum "$IMP/merged.ma" |
 
 # --- 4. SBayesRC ----------------------------------------------------------
 # Defaults not shown on the command line and not changed: chain length 3,000,
-# burn-in 1,000, the baseline2.2 annotation set. --seed fixes the RNG draw, but
-# reproducing the weights bit for bit also needs SBAYESRC_THREADS=1: at four
-# threads the sampler lands on different weights from run to run (README.md).
+# burn-in 1,000, the baseline2.2 annotation set. In the whole-brain
+# reproducibility test, two single-threaded runs with identical inputs and seed
+# gave byte-identical weights, while four-thread runs did not (README.md). The
+# deposited weights were produced at four threads; use them to reproduce the
+# reported scores.
 "$GCTB" --ldm-eigen "$GCTB_LDM_EIGEN" \
         --gwas-summary "$IMP/merged.ma" \
         --sbayes RC --annot "$GCTB_ANNOT" \

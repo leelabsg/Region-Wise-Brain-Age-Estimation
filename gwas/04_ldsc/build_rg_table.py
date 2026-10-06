@@ -5,8 +5,8 @@
   line. The value in parentheses on the rg line is its SE, not a p-value.
 - Benjamini-Hochberg within three independent families as first run:
     (1) inter-regional 45 pairs, (2) Telomere x 10, (3) Protein x 10.
-  The published table's external-aging family (21 tests) is produced by
-  update_rg_table_external.py, which runs after this script.
+  The published table's external-aging family (21 tests) and the ProtAge-204
+  rows are produced by 07_protage/11_ldsc_downstream.py.
 - Phenotypic columns are Pearson correlations on individual-level
   inverse-normal-transformed brain-age gaps; they require access to the cohort
   phenotype tables and are NA when those are absent.

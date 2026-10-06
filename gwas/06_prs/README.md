@@ -9,63 +9,29 @@ the preprocessing, the exact tool invocations, and the analyses.
 
 ## Reproducibility of the weights
 
-**`--seed` is not enough. `--seed` with `--thread 1` is.**
+SBayesRC is an MCMC sampler, and the number of threads affects its output. In a
+reproducibility test on the whole-brain region, from a byte-identical `.ma`
+input with the same seed:
 
-SBayesRC is an MCMC sampler, and `--thread` is the variable that matters. Run
-the whole-brain region from a byte-identical `.ma` input with the same seed:
-
-| threads | runs | distinct outputs |
+| threads | runs | distinct weight sets |
 |---|---|---|
-| `--thread 4` | 5 (across three nodes) | **3** |
-| `--thread 1` | 2 | **1** — byte-identical |
+| `--thread 4` | 5 (across three nodes) | 3 |
+| `--thread 1` | 2 | 1 |
 
-Every deposited weight set was itself produced by a `--thread 4` run at
-`--seed 20260821`, one run per region. For the whole-brain region both
-single-threaded runs reproduce that deposited file byte for byte, so there the
-deposit is the deterministic answer rather than one parallel run's draw.
-Single-threaded cost is about twice: 1 h 51 m against 56 m for four threads, per
-region.
+In the whole-brain reproducibility test, two single-threaded runs with
+identical inputs and the same seed produced byte-identical weight files. Exact
+reconstruction of the deposited four-threaded weights by single-threaded reruns
+was not tested. Use the deposited weights to reproduce the reported scores.
 
-Two things the parallel variation is **not**, because the obvious explanations
-are wrong:
+Each deposited weight set was produced by one `--thread 4` run at
+`--seed 20260821` (derivation sample n = 30,800). In the tested whole-brain
+analysis, distinct four-thread chains gave weight vectors correlated at
+0.64–0.74 and held-out scores correlated at 0.95–0.96, and the held-out
+whole-brain association did not change direction or significance. The other
+regions and other downstream analyses were not tested in this way.
 
-* not a hardware or library effect. Every node involved has the same CPU model,
-  no AVX-512, no threading environment variables set, and runs the same
-  statically linked GCTB binary;
-* not across-node versus within-node. One weight set appeared on three different
-  nodes, and a single node produced two different weight sets. The variation is
-  between runs, and it disappears at one thread.
-
-So: **run `--thread 1` if you need to reproduce the weights**, and use more
-threads only when the downstream aggregate results are what you care about. How
-far the parallel variation propagates when it does occur, measured on the
-whole-brain region:
-
-| level | quantity | value |
-|---|---|---|
-| weights | corr(BETA) between distinct chains | 0.639 – 0.739 |
-| weights | Jaccard of the top 1,000 by \|BETA\| | 0.20 – 0.23 |
-| hyperparameters | SNP h² across chains | 0.173 – 0.187 (within 0.4 posterior SD) |
-| PRS, held-out UKB (n = 10,267) | corr(PRS) between chains | **0.950 – 0.959** |
-| PRS | max abs. difference after standardising | 1.15 – 1.37 SD |
-| PRS | individuals keeping their decile | 45 – 48 % |
-| ST17 | β | +0.886 to +0.901 |
-| ST17 | P | 3.8e-60 to 4.9e-62 |
-| ST17 | adjusted R² | 0.0256 – 0.0265 |
-| ST17 | associations changing direction or significance | **0 of 3 chains** |
-
-So the reported associations are insensitive to which chain is used, while an
-individual's score is not: about half of the sample moves decile between chains,
-and roughly a third of the top 10 % is replaced. Per-participant scores should
-be taken from the deposited weights rather than regenerated.
-
-This was measured for the whole-brain region. The remaining regional weights are
-the archived canonical outputs of one `--thread 4` run each; their single-thread
-bitwise reproducibility was not independently tested, and neither was the spread
-above.
-
-`07_export_weights.py` remains the practical answer: deposit the weights and
-nothing downstream depends on re-running the sampler at all. Scoring, ST17,
+`07_export_weights.py` writes the deposit package, so nothing downstream depends
+on re-running the sampler. Scoring, ST17,
 ST18 and ST21-23 are deterministic given the weights. It is create-only: it
 refuses to overwrite an existing weight file or an existing `MANIFEST.txt`, so a
 second run against a directory that already holds an export stops with exit 1
@@ -138,6 +104,8 @@ do not change.
 | `sex_specific_phecodes.tsv` | the sex designations ST18 applied: 134 aggregated test units, 109 Female and 25 Male |
 | `06_analyze_adni.py` | ADNI correlation and case-control models (ST21-23) |
 | `07_export_weights.py` | deposit package: per-region weights + sha256 manifest |
+| `08_phewas_additional_corrections.py` | sensitivity summaries of the ST18 raw P values: BH across all PRS–phecode pairs within a sample, and a phecode-level test (Bonferroni ×10 over the PRS, BH across phecodes); no model is refitted |
+| `09_relatedness_prune.py` | relatedness sensitivity: remove target participants related (KING > 0.0884) to the derivation sample, then prune the remaining related pairs; the keep list is passed to `05_analyze_ST18_phewas.py` as `PRS_PHEWAS_KEEP`. Weights are not re-estimated |
 | `_regions.py` | region codes and display names, from `config/regions.tsv` |
 
 ## ST18: three analysis samples

@@ -222,8 +222,9 @@ gwas/               genetic analysis of the brain-age gaps (see gwas/README.md)
 ## Genetic analysis
 
 Everything downstream of the model — the GWAS of each regional brain-age gap in
-UK Biobank, its replication in ADNI, LD score regression, and MAGMA cell-type
-enrichment — is in [`gwas/`](gwas/), with its own
+UK Biobank, its replication in ADNI, LD score regression, MAGMA cell-type
+enrichment, the BAG polygenic scores and their PheWAS, and the ProtAge-204
+proteomic-age gap used as an external ageing measure — is in [`gwas/`](gwas/), with its own
 [README](gwas/README.md) covering the order of execution, what data access each
 stage needs, the FUMA dependency, and how to verify that the released scripts
 reproduce the published tables.
@@ -231,7 +232,12 @@ reproduce the published tables.
 ## Data availability
 
 No imaging data, participant identifiers, phenotypes, or trained model weights are
-included in this repository. UK Biobank and ADNI data are available to approved
+included in this repository.
+
+GWAS summary statistics (ten BAGs, N = 41,067; ProtAge-204, N = 38,806) and the
+BAG polygenic-score weights (derivation n = 30,800) are available from
+https://storage.googleapis.com/leelabsg-regional-brain-age/README.md, which
+lists the files, their columns, filters and checksums. UK Biobank and ADNI data are available to approved
 researchers through the respective data-access processes. The atlas file is not
 redistributed here — supply your own (e.g. the FSL MNI structural atlas) and note
 its own licence terms.

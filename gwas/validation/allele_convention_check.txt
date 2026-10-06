@@ -99,24 +99,21 @@ differences at all.
 
 rs429358 (APOE), worked through by hand
 ---------------------------------------
-rs429358 is on chromosome 19, so it is NOT in the chr22 artefacts above
-(grep count in the new chr22 munged file: 0). It is worked out here from the
-released whole-brain sumstats and the source row, both read only.
+rs429358 is on chromosome 19, so it is NOT in the chr22 artefacts above. It is
+worked out here from the final whole-brain GWAS (N = 41,067) and its munged
+LDSC input, both read only.
 
-  source row ($LDSC_WORK_DIR/files/global/chr19_global_GWAS_SummaryStatistics.txt)
+  SAIGE output (whole brain, chr19)
     CHR 19  POS 45411941  MarkerID rs429358
     Allele1 C   Allele2 T   AF_Allele2 0.848991
-    BETA -0.0523891   SE 0.0098071   BETA/SE = -5.3420
+    BETA -0.0515221   SE 0.00980716   p.value 1.492176E-07   BETA/SE = -5.2535
 
-  released sumstats ($LDSC_WORK_DIR/sumstats/pad_global.sumstats.gz)
-    SNP rs429358   A1 C   A2 T   Z -5.342   N 41067.0
+  munged sumstats (pad_global.sumstats.gz, --a1 Allele2 --a2 Allele1)
+    SNP rs429358   A1 T   A2 C   Z -5.254   N 41067.0
 
-  Z equals BETA/SE to the printed precision, and A1 holds Allele1.
-  BETA is on Allele2 = T, so the released file labels A1 = C while its Z
-  describes T. Under the released code the same row would read A1 = T, A2 = C,
-  Z = -5.342: the label moves onto the effect allele, the number does not move.
-  In allele terms both files say the same thing, beta(T) < 0, equivalently
-  beta(C) > 0, i.e. the APOE e4 allele C raises the brain-age gap.
+  Z equals BETA/SE to the printed precision and A1 holds the effect allele T:
+  beta(T) < 0, equivalently beta(C) > 0, i.e. the APOE e4 allele C raises the
+  brain-age gap.
 
 
 All 220 region-chromosome files

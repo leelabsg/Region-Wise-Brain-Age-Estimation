@@ -49,11 +49,16 @@ each region was run in.
 
   04_ldsc              munge → merge → h² and rg      (runs off 01's sumstats)
                        external traits: 00_preprocess_telomere.py (telomere) or
-                       01_preprocess.py (ProtAge-204) → 00_munge_external.sh →
-                       03_merge_munged.py, then the same h² and rg steps
+                       07_protage/11_ldsc_downstream.py (ProtAge-204) → 00_munge_external.sh
+                       (telomere) → 03_merge_munged.py, then the same h² and rg steps
 
   06_prs               SBayesRC weights → scoring → ST17 / ST18 / ST21-23
                        (runs off 01's TRAINING-split sumstats)
+
+  07_protage           ProtAge-204 proteomic-age gap: protein QC → KNN imputation →
+                       LightGBM clock (out-of-fold) → gap → SAIGE GWAS → LDSC h²,
+                       the 21-test external-ageing rg family and the phenotypic
+                       correlations with the BAGs
 ```
 
 `05_magma_celltype` cannot start until the FUMA SNP2GENE job has finished, and
@@ -61,10 +66,10 @@ each region was run in.
 
 `06_prs` is the one branch that must not see the full sample: its weights are
 fitted on the training split only, so the held-out validation in ST17 stays held
-out. It is also the one branch that needs `--thread 1` to be reproducible:
-SBayesRC is an MCMC sampler and lands on different weights from run to run when
-it is threaded. The weights are deposited for this reason.
-`06_prs/README.md` has the measurements.
+out. SBayesRC is an MCMC sampler, and multi-threaded runs from identical inputs
+and seed did not always return identical weights in the whole-brain
+reproducibility test; the weights are deposited so that the reported scores can
+be reproduced from them. `06_prs/README.md` gives the scope of that test.
 
 ## What each stage needs
 
@@ -74,6 +79,7 @@ it is threaded. The weights are deposited for this reason.
 | `02_adni_replication` | ADNI imputed dosage pgen, the QC sample list, in-sample PCA eigenvectors, genotyping-batch indicators, and the model's ADNI predictions. Approved ADNI data access. |
 | `03_postgwas` | merged summary statistics from both cohorts. |
 | `04_ldsc` | a clone of [bulik/ldsc](https://github.com/bulik/ldsc) and its EUR LD-score panels (`eur_ref_ld_chr`, `eur_w_ld_chr`). The two external ageing traits are built here as well, from `LDSC_TELOMERE_RAW_SUMSTATS` (GWAS Catalog accession GCST90435144) and `LDSC_PROTEIN_AGE_RAW_SUMSTATS` (the merged SAIGE output for the proteomic-age gap); neither file is redistributed here. The phenotypic-correlation columns additionally need individual-level BAG tables. |
+| `07_protage` | UK Biobank Olink proteomics (instance 0) with plate/batch fields, birth year/month and assessment date, the published ProtAge-204 model repository (protein panel and Olink names), the same genotype files as `01_ukb_gwas`, and the BAG tables for the phenotypic correlations. Approved UK Biobank application. |
 | `05_magma_celltype` | MAGMA v1.10, the 1000 Genomes phase 3 EUR reference (GRCh37) with an ENSG gene annotation, FUMA's pre-processed single-cell expression matrices, FUMA's `magma_celltype.R`, and one `magma.genes.raw` per region from a FUMA SNP2GENE job. |
 
 ### Phenotype table
@@ -167,7 +173,7 @@ source, not of the phenotype, and it differs between runs:
 
 | pair | allele order |
 |---|---|
-| `pad_<region>` (N=41,067) vs proteomic age | same for 7,268,105 of 7,268,132 shared SNPs |
+| `pad_<region>` (N=41,067) vs proteomic age (N=38,806) | same for 7,269,915 of 7,269,941 shared SNPs |
 | `pad_<region>` (N=41,067) vs telomere | **opposite** for essentially every shared SNP |
 | `pad_<region>` (N=45,076) vs telomere | same — this is why the original strict align worked |
 
@@ -183,11 +189,11 @@ the only aligner shipped here, and every external correlation in the correlation
 table uses it.
 
 The ProtAge-204 x telomere row of that table uses the same two steps as the ten
-ProtAge-204 x BAG rows, with telomere length in place of a BAG phenotype:
-`align_flip.py --source_file <telomere munged> --reference_file <ProtAge-204 munged>`,
-then `06_genetic_correlation.sh <ProtAge-204 munged> <aligned telomere> <out prefix>`.
-The released row (rg = -0.1787, Z = -3.9597, P = 7.5033e-05) came from an alignment
-reporting `shared=6812697 exact=0 swapped=6812691 other_dropped=6`.
+ProtAge-204 x BAG rows, with telomere length in place of a BAG phenotype
+(`07_protage/11_ldsc_downstream.py`): `align_flip.py --source_file <telomere munged>
+--reference_file <ProtAge-204 munged>`, then `ldsc.py --rg <ProtAge-204 munged>,<aligned telomere>`.
+The published row (rg = -0.1886, Z = -4.0158, P = 5.92e-05) came from an alignment
+reporting `shared=6815695 exact=0 swapped=6815692 other_dropped=3`.
 
 Add a trait and the thing to check is its allele order against `pad_<region>`;
 `align_flip.py` prints `exact=` and `swapped=` counts so the answer is in the log.
@@ -206,6 +212,8 @@ config/
   check_step2_status.sh   per-chromosome completion report
   merge_chromosomes.sh    chr1-22 → one sumstats file, with completeness checks
   make_fuma_input.sh      column subset + gzip for FUMA upload
+  variant_qc_filter.py    mfi INFO >= 0.8 and analysis-sample MAF >= 0.01; the
+                          filter applied to the deposited summary statistics
 
 02_adni_replication/
   build_pheno.py       CN bias correction → INT → covariate merge
@@ -234,8 +242,8 @@ config/
   06_genetic_correlation.sh    ldsc.py --rg for one pair
   build_h2_table.py            h² table from the standalone --h2 logs
   h2_table_traits.tsv          display name → log path, in table order
-  build_rg_table.py            correlation table, three-family BH-FDR
-  update_rg_table_external.py  external-aging rows + 21-test BH-FDR
+  build_rg_table.py            correlation table, BAG-BAG family BH-FDR
+                               (the external-ageing rows: 07_protage/11_ldsc_downstream.py)
 
 06_prs/
   01_preprocess_gwas.py       SAIGE sumstats → GCTB .ma, with --check-orientation
@@ -247,6 +255,8 @@ config/
   sex_specific_phecodes.tsv   sex designations applied to sex-specific phecodes
   06_analyze_adni.py          ADNI correlation and case-control models
   07_export_weights.py        deposit package: weights + sha256 manifest
+  08_phewas_additional_corrections.py  sample-wide and phecode-level BH (ST18 sensitivity)
+  09_relatedness_prune.py     KING > 0.0884 pruning for the relatedness sensitivity
   _regions.py                 region codes and display names
 
 05_magma_celltype/
@@ -266,6 +276,20 @@ config/
   05_build_supplementary_table.py  retained signals → the published table
   checks/                       comparisons against FUMA's own output
   reference/                    app.config template
+
+07_protage/
+  01_inputs.py            NPX pool, data-use exclusion, panel mapping, batch, granular age
+  02_qc.py                assay / participant missingness QC (50% / 54% / 50%)
+  03_knn_impute.R         impute::impute.knn, k = 10, rng.seed 362436069
+  04_scale_cohort.py      MinMax + median centring, batch 0/7/NA removed, splits
+  05_tune.py              Optuna TPE, 200 trials, LightGBM DART, 5-fold CV
+  06_holdout_oof.py       30% hold-out and 5-fold out-of-fold predictions
+  07_gap_phenotype.py     raw gap, age-residualised gap, rank-INT phenotype
+  08_build_gwas_pheno.py  GWAS sample and phenotype/covariate file
+  09_saige_step1.sh       SAIGE 1.1.9 null model
+  10_saige_step2.sh       SAIGE 1.1.9 association, per chromosome
+  11_ldsc_downstream.py   munge, h², rg with BAGs and telomere, 21-test BH,
+                          phenotypic partial correlations
 
 validation/
   allele_convention_check.txt   chr22 measurement behind the allele-labelling
@@ -301,7 +325,7 @@ Three details about how the tables were produced:
   from their logs and kept the log's own precision. `h2_table_traits.tsv` marks
   those rows `verbatim`.
 - The correlation table's FDR families are the inter-regional 45 and the
-  external-aging 21, computed separately. Where LDSC printed `P: 0.` the table
+  external-aging 21 (`07_protage/11_ldsc_downstream.py`), computed separately. Where LDSC printed `P: 0.` the table
   shows `<2.2e-308` and the FDR used 5e-324, which preserves the ranking.
 
 ## What cannot be reproduced from this repository
