@@ -61,8 +61,9 @@ training. In the paper, this meant:
 - non-linearly registered to an MNI152 **brain** template (brain-to-brain, so the
   moving and fixed images have the same field of view),
 - resampled to a common isotropic grid (128×128×128),
-- intensity-normalized per volume (within-brain 99th percentile mapped to a fixed
-  value; background kept at exactly 0).
+- ADNI: intensity-normalized per volume after the 128×128×128 resampling and
+  before region masking (intensities scaled so that the 99th percentile of
+  positive voxels equals 105; non-positive voxels set to 0; no upper clipping).
 
 The atlas does not need to be on the same grid as the images — it is resampled to
 the image grid with nearest-neighbour interpolation — but it **must be in the
@@ -126,8 +127,7 @@ python scripts/finetune_fold.py \
 Fold `F` of the target cohort starts from fold `F` of the pretrained model of the
 **same region**. Every layer is fine-tuned — nothing is frozen — and the optimizer
 is rebuilt after loading so no pretraining optimizer state carries over.
-`--from_scratch` runs the same recipe from random initialisation, which is the
-paper's from-scratch baseline.
+`--from_scratch` runs the same recipe from random initialisation.
 
 `train_cv.py --mode finetune` does the same thing when the folds come from the
 internal KFold instead of external fold CSVs.

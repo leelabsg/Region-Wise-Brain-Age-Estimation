@@ -1,7 +1,9 @@
 """ST21 / ST22 / ST23: the regional BAG polygenic scores in ADNI.
 
-    ST21  Pearson r between PRS_region and the measured ADNI brain-age gap,
-          baseline visits only. Also reports the orientation check below.
+    ST21  Pearson r between PRS_region and the measured ADNI BAG, baseline
+          visits only. The BAG is the stored CN-based bias-corrected value
+          ({region}_corrected_delta_age of PRS_ADNI_BAG_WIDE); it is read, not
+          refitted. Also reports the orientation check below.
     ST22  Logit(label ~ PRS + AGE + SEX + PC1..PC10 + APOE4)     primary
     ST23  Logit(label ~ PRS + AGE + SEX + PC1..PC10)             sensitivity
 
@@ -30,8 +32,9 @@ from statsmodels.stats.multitest import multipletests
 from _regions import LABEL, REGIONS, require
 
 warnings.filterwarnings("ignore")
-PRS_WORK_DIR, ADNI_COVAR, ADNI_APOE, ADNI_PRED_TMPL = require(
-    "PRS_WORK_DIR", "PRS_ADNI_COVAR", "PRS_ADNI_APOE_RAW", "PRS_ADNI_PRED_TMPL")
+PRS_WORK_DIR, ADNI_COVAR, ADNI_APOE, ADNI_PRED_TMPL, ADNI_BAG_WIDE = require(
+    "PRS_WORK_DIR", "PRS_ADNI_COVAR", "PRS_ADNI_APOE_RAW", "PRS_ADNI_PRED_TMPL",
+    "PRS_ADNI_BAG_WIDE")
 # The brain-age model writes the whole-brain predictions under the token "imgs",
 # not "global"; every other region uses its own code. This is a filename quirk of
 # the model outputs, not a different phenotype.
@@ -49,14 +52,33 @@ for r in REGIONS:
     prs = s if prs is None else prs.merge(s, on="IID", how="outer")
 
 # ---------------- ST21 and the orientation check --------------------------
-print("=== ST21: corr(PRS, measured ADNI brain-age gap, baseline) ===", flush=True)
-rows, npos, global_r = [], 0, None
+# Baseline rows of the prediction files link Subject to the BAG table, whose key is
+# eid = "sub-" + Subject without "_" + "X" + baseline acquisition date (YYYYMMDD).
+# Any unlinked baseline row, a prediction that disagrees with the BAG table, or a
+# participant set that differs between BAGs stops the run.
+print("=== ST21: corr(PRS, measured ADNI BAG, baseline) ===", flush=True)
+wide = pd.read_csv(ADNI_BAG_WIDE)
+if wide["eid"].duplicated().any():
+    raise SystemExit("ERROR: duplicate eid in PRS_ADNI_BAG_WIDE")
+rows, npos, global_r, samples = [], 0, None, {}
 for r in REGIONS:
+    col = f"{r}_corrected_delta_age"
+    if col not in wide.columns or f"{r}_predicted_age" not in wide.columns:
+        raise SystemExit(f"ERROR: PRS_ADNI_BAG_WIDE lacks {col} / {r}_predicted_age")
     b = pd.read_csv(ADNI_PRED_TMPL.format(region=PRED_TOKEN[r]))
-    b = (b[b["is_baseline"] == True][["Subject", "PAD"]]
-         .rename(columns={"Subject": "IID"}).dropna().drop_duplicates("IID"))
+    b = b[b["is_baseline"] == True].drop_duplicates("Subject").copy()
+    n_baseline = len(b)
+    b["eid"] = ("sub-" + b["Subject"].str.replace("_", "") + "X"
+                + b["Acq Date"].str.replace("-", ""))
+    b = b.merge(wide[["eid", col, f"{r}_predicted_age"]], on="eid", how="inner", validate="1:1")
+    if len(b) != n_baseline:
+        raise SystemExit(f"ERROR: {r}: baseline rows not linked to PRS_ADNI_BAG_WIDE")
+    if (b["predicted_brain_age"] - b[f"{r}_predicted_age"]).abs().max() > 1e-4:
+        raise SystemExit(f"ERROR: {r}: predictions disagree with PRS_ADNI_BAG_WIDE")
+    b = b[["Subject", col]].rename(columns={"Subject": "IID", col: "BAG"})
     m = prs[["IID", f"PRS_{r}"]].merge(b, on="IID", how="inner").dropna()
-    rr, pp = pearsonr(m[f"PRS_{r}"], m["PAD"])
+    samples[r] = frozenset(m["IID"])
+    rr, pp = pearsonr(m[f"PRS_{r}"], m["BAG"])
     npos += rr > 0
     if r == "global":
         global_r = rr
@@ -64,6 +86,8 @@ for r in REGIONS:
                  "N": len(m), "direction": "positive" if rr > 0 else "negative"})
     print(f"  {LABEL[r]:16s} r={rr:+.4f} p={pp:.3e} n={len(m)}  "
           f"{'POS' if rr > 0 else 'NEG'}", flush=True)
+if len(set(samples.values())) != 1:
+    raise SystemExit("ERROR: ST21 participant sets differ between BAGs")
 pd.DataFrame(rows).to_csv(f"{OUT_DIR}/ST21.tsv", sep="\t", index=False)
 oriented = npos >= 9 and global_r is not None and global_r >= 0.03
 print(f"\nORIENTATION CHECK: {npos}/{len(REGIONS)} positive, global r={global_r:+.4f} "
