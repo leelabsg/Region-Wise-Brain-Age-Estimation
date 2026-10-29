@@ -4,6 +4,9 @@ Everything downstream of the brain-age model: the GWAS of each regional
 brain-age gap (BAG) in UK Biobank, its replication in ADNI, LD score regression
 (SNP heritability and genetic correlation), and MAGMA cell-type enrichment.
 
+<img width="4320" height="3060" alt="fig1_bcd_overview_preview" src="https://github.com/user-attachments/assets/39782365-1ab4-403e-a6dd-a337461ef952" />
+
+
 The model that produces the phenotype lives in the repository root; this
 directory starts from the per-region BAG table it writes.
 
