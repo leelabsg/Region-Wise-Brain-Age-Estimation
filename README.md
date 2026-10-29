@@ -16,9 +16,7 @@ unchanged; only hard-coded paths and the fixed region table were generalized.
 This repository implements the core model-development workflow shown below: atlas-based anatomical masking of three-dimensional T1-weighted MRI, separate training of independently parameterized whole-brain and regional 3D-CNN models, cross-validation, brain-age prediction, and BAG post-processing.
 
 <p align="center">
-  <img width="2830" height="830" alt="image" src="https://github.com/user-attachments/assets/f01ea51c-607a-416a-bc89-c0a289c5c6c8"
-       alt="Overview of whole-brain and region-wise brain-age model development"
-       width="100%">
+  <img width="4320" height="1440" alt="fig1_a_bag_derivation" src="https://github.com/user-attachments/assets/48cd559e-36e3-44cb-93ad-d5145fbec393" />
 </p>
 
 *Overview of the model-development workflow implemented in this repository. Each whole-brain or region-masked 3D MRI input is used to train a separate 3D-CNN brain-age model.*
