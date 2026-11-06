@@ -156,22 +156,30 @@ entry of the region config points to the atlas file.
 
 ## Pretrained model weights
 
-The 40 UK Biobank models used in the paper (ten regions × four
-cross-validation folds) are available for download:
+The brain-age models used in the paper are available for download: 40 UK
+Biobank models (ten regions × four cross-validation folds) and the 40 ADNI
+models fine-tuned from them.
 
 | File | Contents | Size |
 |---|---|---|
-| [`regional_brain_age_weights_ukb.tar.gz`](https://storage.googleapis.com/leelabsg-regional-brain-age/regional_brain_age_weights_ukb.tar.gz) | 40 checkpoints, `MANIFEST.tsv`, `SHA256SUMS` | 443 MB |
+| [`regional_brain_age_weights_ukb.tar.gz`](https://storage.googleapis.com/leelabsg-regional-brain-age/regional_brain_age_weights_ukb.tar.gz) | 40 UK Biobank checkpoints, `MANIFEST.tsv`, `SHA256SUMS` | 443 MB |
+| [`regional_brain_age_weights_adni_finetuned.tar.gz`](https://storage.googleapis.com/leelabsg-regional-brain-age/regional_brain_age_weights_adni_finetuned.tar.gz) | 40 ADNI fine-tuned checkpoints, `MANIFEST.tsv`, `SHA256SUMS` | 443 MB |
 
-SHA-256 of the archive:
-`cd8119d22e833daddbdea0603c049e1516deed9509d8b77b6cce4e64cabc6060`
-
-The models were trained on 25,642 UK Biobank participants with 4-fold
-cross-validation. Each fold's checkpoint comes from the epoch with the lowest
-validation MAE.
+SHA-256 of the archives:
 
 ```
-ukb/
+cd8119d22e833daddbdea0603c049e1516deed9509d8b77b6cce4e64cabc6060  regional_brain_age_weights_ukb.tar.gz
+bbfe53656dcfd425b1d20b526e85a46c011f18d9a1f16d508180c97ec3ae06bc  regional_brain_age_weights_adni_finetuned.tar.gz
+```
+
+The UK Biobank models were trained on 25,642 UK Biobank participants with
+4-fold cross-validation. The ADNI models were fine-tuned from the UK Biobank
+model of the same region and fold on 1,179 cognitively normal ADNI participants,
+also with 4-fold cross-validation. In both, each fold's checkpoint comes from
+the epoch with the lowest validation MAE.
+
+```
+ukb/                    (adni_finetuned/ has the same layout)
   MANIFEST.tsv     region, fold, file, best epoch, validation MAE, trainable
                    parameters, bytes, SHA-256, MD5
   SHA256SUMS
@@ -193,6 +201,12 @@ wget https://storage.googleapis.com/leelabsg-regional-brain-age/regional_brain_a
 echo "cd8119d22e833daddbdea0603c049e1516deed9509d8b77b6cce4e64cabc6060  regional_brain_age_weights_ukb.tar.gz" | sha256sum -c -
 tar -xzf regional_brain_age_weights_ukb.tar.gz
 (cd ukb && sha256sum -c SHA256SUMS)
+
+# ADNI fine-tuned models
+wget https://storage.googleapis.com/leelabsg-regional-brain-age/regional_brain_age_weights_adni_finetuned.tar.gz
+echo "bbfe53656dcfd425b1d20b526e85a46c011f18d9a1f16d508180c97ec3ae06bc  regional_brain_age_weights_adni_finetuned.tar.gz" | sha256sum -c -
+tar -xzf regional_brain_age_weights_adni_finetuned.tar.gz
+(cd adni_finetuned && sha256sum -c SHA256SUMS)
 ```
 
 ### Predict brain age
@@ -209,7 +223,8 @@ python scripts/predict.py \
     --output_csv /path/to/output/predictions/temporal_lobe.csv
 ```
 
-For the whole brain, use `--region global --model_dir ukb/global`. Without a
+For the whole brain, use `--region global --model_dir ukb/global`. For the ADNI
+fine-tuned models, use `--model_dir adni_finetuned/<region>`. Without a
 `prediction_mode` column, each scan is scored with the mean of the four fold
 models.
 
@@ -248,7 +263,9 @@ UK Biobank models were fine-tuned on cognitively normal ADNI participants
 before they were applied to ADNI. Bias correction should be estimated within
 each cohort (see [Brain-age gap definitions](#brain-age-gap-definitions)).
 
-The model weights are released under CC BY 4.0.
+The UK Biobank model weights are released under CC BY 4.0. Data used to
+fine-tune the ADNI models were obtained from the Alzheimer's Disease
+Neuroimaging Initiative (ADNI) database (adni.loni.usc.edu).
 
 ## Brain-age gap definitions
 
@@ -335,7 +352,7 @@ reproduce the published tables.
 No imaging data, participant identifiers or phenotypes are included in this
 repository.
 
-The trained UK Biobank brain-age models (see
+The trained brain-age models (UK Biobank and ADNI fine-tuned; see
 [Pretrained model weights](#pretrained-model-weights)), GWAS summary statistics
 (ten BAGs, N = 41,067; ProtAge-204, N = 38,806) and the BAG polygenic-score
 weights (derivation n = 30,800) are available from
