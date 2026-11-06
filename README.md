@@ -46,7 +46,8 @@ pip install -r requirements.txt
 ```
 
 ANTsPy (`antspyx`) is required for atlas mask construction; PyTorch with CUDA is
-strongly recommended for training.
+strongly recommended for training. Hardware, run times and compute per stage are
+listed in [docs/COMPUTATIONAL_RESOURCES.md](docs/COMPUTATIONAL_RESOURCES.md).
 
 ## Input data expectations
 
@@ -115,6 +116,7 @@ python scripts/finetune_fold.py \
     --val_csv   /path/to/folds/cv_fold_0_val.csv \
     --region    temporal_lobe \
     --region_config configs/regions_mni_structural.json \
+    --atlas     /path/to/MNI-maxprob-thr0-1mm.nii.gz \
     --fold 0 \
     --model_load_folder /path/to/pretrained/temporal_lobe \
     --load_epoch 40 \
@@ -137,6 +139,7 @@ python scripts/predict.py \
     --cohort_csv /path/to/cohort_all.csv \
     --region temporal_lobe \
     --region_config configs/regions_mni_structural.json \
+    --atlas /path/to/MNI-maxprob-thr0-1mm.nii.gz \
     --model_dir /path/to/output/models_finetuned/temporal_lobe \
     --n_folds 4 \
     --output_csv /path/to/output/predictions/temporal_lobe.csv
@@ -147,6 +150,105 @@ python scripts/compute_bag.py \
     --int \
     --output_csv /path/to/output/bag/temporal_lobe_bag.csv
 ```
+
+`--atlas` is required for every region, including `global`, unless the `atlas`
+entry of the region config points to the atlas file.
+
+## Pretrained model weights
+
+The 40 UK Biobank models used in the paper (ten regions × four
+cross-validation folds) are available for download:
+
+| File | Contents | Size |
+|---|---|---|
+| [`regional_brain_age_weights_ukb.tar.gz`](https://storage.googleapis.com/leelabsg-regional-brain-age/regional_brain_age_weights_ukb.tar.gz) | 40 checkpoints, `MANIFEST.tsv`, `SHA256SUMS` | 443 MB |
+
+SHA-256 of the archive:
+`cd8119d22e833daddbdea0603c049e1516deed9509d8b77b6cce4e64cabc6060`
+
+The models were trained on 25,642 UK Biobank participants with 4-fold
+cross-validation. Each fold's checkpoint comes from the epoch with the lowest
+validation MAE.
+
+```
+ukb/
+  MANIFEST.tsv     region, fold, file, best epoch, validation MAE, trainable
+                   parameters, bytes, SHA-256, MD5
+  SHA256SUMS
+  global/          cv-0.pth.tar … cv-3.pth.tar   whole brain (no mask)
+  caudate/  cerebellum/  frontal_lobe/  insula/  occipital_lobe/
+  parietal_lobe/  putamen/  temporal_lobe/  thalamus/
+```
+
+The directory names are the region keys in `configs/regions_mni_structural.json`.
+Each checkpoint is a dictionary with two entries: `epoch` and `state_dict`. The
+`state_dict` is for `regionbae.CNN(in_channels=1)`, which has 2,984,801
+trainable parameters. Checkpoints contain no optimizer state and load with
+`torch.load(path, weights_only=True)`.
+
+### Download and verify
+
+```bash
+wget https://storage.googleapis.com/leelabsg-regional-brain-age/regional_brain_age_weights_ukb.tar.gz
+echo "cd8119d22e833daddbdea0603c049e1516deed9509d8b77b6cce4e64cabc6060  regional_brain_age_weights_ukb.tar.gz" | sha256sum -c -
+tar -xzf regional_brain_age_weights_ukb.tar.gz
+(cd ukb && sha256sum -c SHA256SUMS)
+```
+
+### Predict brain age
+
+```bash
+python scripts/predict.py \
+    --cohort_csv /path/to/cohort.csv \
+    --region temporal_lobe \
+    --region_config configs/regions_mni_structural.json \
+    --atlas /path/to/MNI-maxprob-thr0-1mm.nii.gz \
+    --model_dir ukb/temporal_lobe \
+    --checkpoint_pattern 'cv-{fold}.pth.tar' \
+    --n_folds 4 \
+    --output_csv /path/to/output/predictions/temporal_lobe.csv
+```
+
+For the whole brain, use `--region global --model_dir ukb/global`. Without a
+`prediction_mode` column, each scan is scored with the mean of the four fold
+models.
+
+### Fine-tune on another cohort
+
+```bash
+python scripts/finetune_fold.py \
+    --train_csv /path/to/folds/cv_fold_0_train.csv \
+    --val_csv   /path/to/folds/cv_fold_0_val.csv \
+    --region    temporal_lobe \
+    --region_config configs/regions_mni_structural.json \
+    --atlas     /path/to/MNI-maxprob-thr0-1mm.nii.gz \
+    --fold 0 \
+    --model_load_folder ukb/temporal_lobe \
+    --model_dir   /path/to/output/models_finetuned/temporal_lobe \
+    --results_dir /path/to/output/results_finetuned/temporal_lobe/fold_0
+```
+
+With `--fold F`, training starts from `ukb/<region>/cv-F.pth.tar`. The
+fine-tuned models are saved as `cv-F-best.pth.tar` in `--model_dir`, which is the
+default `--checkpoint_pattern` of `predict.py`.
+
+### Input requirements
+
+The models expect inputs preprocessed as described in
+[Input data expectations](#input-data-expectations):
+
+- skull-stripped, N4-corrected T1w volumes;
+- nonlinearly registered to the MNI152 brain template and resampled to
+  128 × 128 × 128;
+- regional masks taken from the MNI structural atlas (`MNI-maxprob-thr0-1mm`),
+  with dilation radius 4.
+
+Predicted age depends on scanner, protocol and preprocessing. In the paper, the
+UK Biobank models were fine-tuned on cognitively normal ADNI participants
+before they were applied to ADNI. Bias correction should be estimated within
+each cohort (see [Brain-age gap definitions](#brain-age-gap-definitions)).
+
+The model weights are released under CC BY 4.0.
 
 ## Brain-age gap definitions
 
@@ -214,6 +316,7 @@ scripts/
   compute_bag.py    bias correction + INT with calibration provenance
 configs/            example region configuration
 examples/           example cohort table and end-to-end shell scripts
+docs/               computational resources (hardware, run times, compute per stage)
 gwas/               genetic analysis of the brain-age gaps (see gwas/README.md)
 ```
 
@@ -229,11 +332,13 @@ reproduce the published tables.
 
 ## Data availability
 
-No imaging data, participant identifiers, phenotypes, or trained model weights are
-included in this repository.
+No imaging data, participant identifiers or phenotypes are included in this
+repository.
 
-GWAS summary statistics (ten BAGs, N = 41,067; ProtAge-204, N = 38,806) and the
-BAG polygenic-score weights (derivation n = 30,800) are available from
+The trained UK Biobank brain-age models (see
+[Pretrained model weights](#pretrained-model-weights)), GWAS summary statistics
+(ten BAGs, N = 41,067; ProtAge-204, N = 38,806) and the BAG polygenic-score
+weights (derivation n = 30,800) are available from
 https://storage.googleapis.com/leelabsg-regional-brain-age/README.md, which
 lists the files, their columns, filters and checksums. UK Biobank and ADNI data are available to approved
 researchers through the respective data-access processes. The atlas file is not
@@ -250,4 +355,6 @@ This repository builds on methodological work developed in the following prior s
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE). The MIT License applies to the contents of this
+repository; files distributed from the bucket are covered by the terms stated in
+the [bucket README](https://storage.googleapis.com/leelabsg-regional-brain-age/README.md).
